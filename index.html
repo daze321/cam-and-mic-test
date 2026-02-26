@@ -1,0 +1,378 @@
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Camera &amp; Mic Test</title>
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+    font-family:Segoe UI, sans-serif;
+    background:#0b1220;
+    color:white;
+    overflow:hidden;
+}
+
+/* TOP BAR */
+header{
+    position:fixed;
+    top:0;
+    width:100%;
+    height:65px;
+    background:rgba(10,15,30,0.7);
+    backdrop-filter:blur(20px);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:0 30px;
+    z-index:10;
+}
+
+.tabs button{
+    background:none;
+    border:none;
+    color:white;
+    font-size:15px;
+    margin-right:25px;
+    cursor:pointer;
+    opacity:.6;
+    transition:.3s;
+}
+.tabs button.active{
+    opacity:1;
+    border-bottom:2px solid #00e0ff;
+}
+
+.settings-btn{
+    font-size:20px;
+    cursor:pointer;
+}
+
+/* CAMERA */
+#video{
+    position:absolute;
+    width:100%;
+    height:100%;
+    object-fit:cover;
+    transition:filter .2s;
+}
+
+/* MIC VIEW */
+#micView{
+    display:none;
+    height:100vh;
+    width:100vw;
+    justify-content:center;
+    align-items:center;
+    position:relative;
+    background:radial-gradient(circle at center,#111a33,#050910);
+}
+
+.mic-core{
+    width:130px;
+    height:130px;
+    border-radius:50%;
+    background:linear-gradient(145deg,#00e0ff,#0077ff);
+    box-shadow:0 0 40px #00e0ff55;
+    position:relative;
+    z-index:2;
+}
+
+#waveCanvas{
+    position:absolute;
+}
+
+#dbMeter{
+    position:absolute;
+    bottom:120px;
+    font-size:28px;
+    font-weight:600;
+    letter-spacing:1px;
+}
+
+/* SETTINGS */
+#settingsPanel{
+    position:fixed;
+    top:75px;
+    right:25px;
+    width:320px;
+    max-height:85vh;
+    overflow-y:auto;
+    background:rgba(20,25,45,0.95);
+    backdrop-filter:blur(20px);
+    padding:20px;
+    border-radius:15px;
+    display:none;
+    flex-direction:column;
+    gap:12px;
+    z-index:20;
+}
+
+label{font-size:13px;opacity:.8}
+select,input[type=range]{
+    width:100%;
+    padding:6px;
+    border-radius:6px;
+    border:none;
+}
+
+.toggle{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+}
+
+.section-title{
+    margin-top:10px;
+    font-size:14px;
+    opacity:.6;
+    border-bottom:1px solid #ffffff22;
+    padding-bottom:5px;
+}
+button.reset-btn{
+    padding:6px;
+    border:none;
+    border-radius:6px;
+    background:#00e0ff;
+    color:#000;
+    cursor:pointer;
+    font-weight:600;
+}
+</style>
+</head>
+<body>
+
+<header>
+    <div class="tabs">
+        <button id="cameraTab" class="active">Camera</button>
+        <button id="micTab">Microphone</button>
+    </div>
+    <div class="settings-btn" id="settingsBtn">⚙</div>
+</header>
+
+<video id="video" autoplay="" playsinline=""></video>
+
+<div id="micView">
+    <canvas id="waveCanvas" width="1045" height="721"></canvas>
+    <div id="dbMeter">0 dB</div>
+    <div class="mic-core"></div>
+</div>
+
+<div id="settingsPanel">
+
+<div class="section-title">Camera Settings</div>
+
+<label>Camera Device</label>
+<select id="cameraSelect"></select>
+
+<label>Resolution</label>
+<select id="resolutionSelect">
+<option value="default">Default</option>
+<option value="1280x720">HD 720p</option>
+<option value="1920x1080">Full HD</option>
+</select>
+
+<div class="toggle">
+<label>Mirror Camera</label>
+<input type="checkbox" id="mirrorToggle">
+</div>
+
+<label>Brightness</label>
+<input type="range" id="brightness" min="50" max="150" value="100">
+
+<label>Contrast</label>
+<input type="range" id="contrast" min="50" max="150" value="100">
+
+<label>Saturation</label>
+<input type="range" id="saturation" min="50" max="150" value="100">
+
+<button class="reset-btn" id="resetFilters">Reset Filters</button>
+
+<div class="section-title">Microphone Settings</div>
+
+<label>Microphone Device</label>
+<select id="micSelect"></select>
+
+<div class="toggle">
+<label>Hear Yourself</label>
+<input type="checkbox" id="monitorToggle">
+</div>
+
+<label>Sensitivity</label>
+<input type="range" id="sensitivity" min="1" max="5" value="2">
+
+<label>Smoothing</label>
+<input type="range" id="smoothing" min="0" max="0.9" step="0.1" value="0.5">
+
+</div>
+
+<script>
+const video=document.getElementById("video");
+const micView=document.getElementById("micView");
+const cameraTab=document.getElementById("cameraTab");
+const micTab=document.getElementById("micTab");
+const settingsBtn=document.getElementById("settingsBtn");
+const settingsPanel=document.getElementById("settingsPanel");
+const cameraSelect=document.getElementById("cameraSelect");
+const micSelect=document.getElementById("micSelect");
+const resolutionSelect=document.getElementById("resolutionSelect");
+const mirrorToggle=document.getElementById("mirrorToggle");
+const sensitivitySlider=document.getElementById("sensitivity");
+const smoothingSlider=document.getElementById("smoothing");
+const monitorToggle=document.getElementById("monitorToggle");
+const brightness=document.getElementById("brightness");
+const contrast=document.getElementById("contrast");
+const saturation=document.getElementById("saturation");
+const resetFilters=document.getElementById("resetFilters");
+const dbMeter=document.getElementById("dbMeter");
+
+let currentStream;
+let audioContext, analyser, dataArray, gainNode;
+const canvas=document.getElementById("waveCanvas");
+const ctx=canvas.getContext("2d");
+
+function resizeCanvas(){
+canvas.width=window.innerWidth;
+canvas.height=window.innerHeight;
+}
+resizeCanvas();
+window.onresize=resizeCanvas;
+
+async function getDevices(){
+const devices=await navigator.mediaDevices.enumerateDevices();
+cameraSelect.innerHTML="";
+micSelect.innerHTML="";
+devices.forEach(device=>{
+const option=document.createElement("option");
+option.value=device.deviceId;
+option.text=device.label||device.kind;
+if(device.kind==="videoinput") cameraSelect.appendChild(option);
+if(device.kind==="audioinput") micSelect.appendChild(option);
+});
+}
+
+function stopStream(){
+if(currentStream){
+currentStream.getTracks().forEach(track=>track.stop());
+}
+}
+
+async function startCamera(){
+stopStream();
+let constraints={video:{}};
+if(resolutionSelect.value!=="default"){
+const [w,h]=resolutionSelect.value.split("x");
+constraints.video.width={exact:parseInt(w)};
+constraints.video.height={exact:parseInt(h)};
+}
+if(cameraSelect.value){
+constraints.video.deviceId={exact:cameraSelect.value};
+}
+currentStream=await navigator.mediaDevices.getUserMedia(constraints);
+video.srcObject=currentStream;
+}
+
+async function startMic(){
+stopStream();
+currentStream=await navigator.mediaDevices.getUserMedia({
+audio: micSelect.value?{deviceId:{exact:micSelect.value}}:true
+});
+audioContext=new AudioContext();
+const source=audioContext.createMediaStreamSource(currentStream);
+analyser=audioContext.createAnalyser();
+gainNode=audioContext.createGain();
+analyser.fftSize=512;
+analyser.smoothingTimeConstant=parseFloat(smoothingSlider.value);
+source.connect(analyser);
+if(monitorToggle.checked){
+source.connect(gainNode).connect(audioContext.destination);
+}
+dataArray=new Uint8Array(analyser.frequencyBinCount);
+draw();
+}
+
+function draw(){
+requestAnimationFrame(draw);
+if(!analyser) return;
+analyser.getByteFrequencyData(dataArray);
+ctx.clearRect(0,0,canvas.width,canvas.height);
+const centerX=canvas.width/2;
+const centerY=canvas.height/2;
+const radius=90;
+const bars=120;
+let sum=0;
+for(let i=0;i<dataArray.length;i++) sum+=dataArray[i];
+let avg=sum/dataArray.length;
+let db=20*Math.log10(avg/255);
+dbMeter.textContent=isFinite(db)?db.toFixed(1)+" dB":"0 dB";
+
+for(let i=0;i<bars;i++){
+const angle=(i/bars)*Math.PI*2;
+const value=dataArray[i]*sensitivitySlider.value;
+const barHeight=value*0.6;
+const x1=centerX+Math.cos(angle)*radius;
+const y1=centerY+Math.sin(angle)*radius;
+const x2=centerX+Math.cos(angle)*(radius+barHeight);
+const y2=centerY+Math.sin(angle)*(radius+barHeight);
+ctx.strokeStyle=`hsl(${i*3},100%,60%)`;
+ctx.lineWidth=3;
+ctx.beginPath();
+ctx.moveTo(x1,y1);
+ctx.lineTo(x2,y2);
+ctx.stroke();
+}
+}
+
+/* Camera filters */
+function updateFilters(){
+video.style.filter=`brightness(${brightness.value}%) contrast(${contrast.value}%) saturate(${saturation.value}%)`;
+}
+
+brightness.oninput=updateFilters;
+contrast.oninput=updateFilters;
+saturation.oninput=updateFilters;
+resetFilters.onclick=()=>{
+brightness.value=100;
+contrast.value=100;
+saturation.value=100;
+updateFilters();
+};
+
+/* UI */
+cameraTab.onclick=()=>{
+cameraTab.classList.add("active");
+micTab.classList.remove("active");
+video.style.display="block";
+micView.style.display="none";
+startCamera();
+};
+micTab.onclick=()=>{
+micTab.classList.add("active");
+cameraTab.classList.remove("active");
+video.style.display="none";
+micView.style.display="flex";
+startMic();
+};
+settingsBtn.onclick=()=>{
+settingsPanel.style.display=settingsPanel.style.display==="flex"?"none":"flex";
+};
+mirrorToggle.onchange=()=>{
+video.style.transform=mirrorToggle.checked?"scaleX(-1)":"scaleX(1)";
+};
+cameraSelect.onchange=startCamera;
+resolutionSelect.onchange=startCamera;
+micSelect.onchange=startMic;
+monitorToggle.onchange=startMic;
+smoothingSlider.oninput=()=>{
+if(analyser) analyser.smoothingTimeConstant=parseFloat(smoothingSlider.value);
+};
+
+async function init(){
+await navigator.mediaDevices.getUserMedia({video:true,audio:true});
+await getDevices();
+startCamera();
+}
+init();
+</script>
+
+
+</body></html>
